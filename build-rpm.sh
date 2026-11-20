@@ -5,7 +5,7 @@
 set -euo pipefail
 
 VER="${VER:-0.11.0}"
-REL="${REL:-6}"
+REL="${REL:-7}"
 # upstream release tag (can differ from the numeric VER, e.g. "-alpha")
 UPSTREAM_TAG="${UPSTREAM_TAG:-v0.11.0-alpha}"
 SHA256="9365c604831738a5a30128084b7821e01cea16c96ca2f5cbed51b9c0336dabce"
@@ -42,6 +42,12 @@ install -m 0644 "$HERE/assets/deepcool-digital-smart.service" "$SRC/deepcool-dig
 install -m 0644 "$HERE/assets/deepcool-digital-gui.desktop" "$SRC/deepcool-digital-gui.desktop"
 install -m 0644 "$HERE/assets/deepcool-digital-gui-autostart.desktop" "$SRC/deepcool-digital-gui-autostart.desktop"
 install -m 0644 "$HERE/assets/deepcool-digital.svg" "$SRC/deepcool-digital.svg"
+install -d "$SRC/icons"
+for dir in "$HERE"/assets/icons/*x*; do
+    size="$(basename "$dir")"
+    install -D -m 0644 "$dir/deepcool-digital.png" "$SRC/icons/$size/deepcool-digital.png"
+done
+install -m 0644 "$HERE/assets/org.deepcool.digital.gui.metainfo.xml" "$SRC/org.deepcool.digital.gui.metainfo.xml"
 install -m 0644 "$HERE/assets/99-deepcool-digital.rules"   "$SRC/99-deepcool-digital.rules"
 tar -C "$TOPDIR/SOURCES" -czf "$TOPDIR/SOURCES/deepcool-digital-linux-${VER}.tar.gz" "deepcool-digital-linux-${VER}"
 
@@ -95,6 +101,11 @@ install -D -m 0644 deepcool-digital-smart.service %{buildroot}/%{_userunitdir}/d
 install -D -m 0644 deepcool-digital-gui.desktop %{buildroot}/%{_datadir}/applications/deepcool-digital-gui.desktop
 install -D -m 0644 deepcool-digital-gui-autostart.desktop %{buildroot}/%{_sysconfdir}/xdg/autostart/deepcool-digital-gui.desktop
 install -D -m 0644 deepcool-digital.svg %{buildroot}/%{_datadir}/icons/hicolor/scalable/apps/deepcool-digital.svg
+for dir in icons/*x*; do
+    size="$(basename "$dir")"
+    install -D -m 0644 "$dir/deepcool-digital.png" "%{buildroot}/%{_datadir}/icons/hicolor/$size/apps/deepcool-digital.png"
+done
+install -D -m 0644 org.deepcool.digital.gui.metainfo.xml %{buildroot}/%{_datadir}/metainfo/org.deepcool.digital.gui.metainfo.xml
 install -D -m 0644 99-deepcool-digital.rules %{buildroot}/%{_udevrulesdir}/99-deepcool-digital.rules
 
 %post
@@ -121,6 +132,8 @@ fi
 %{_datadir}/applications/deepcool-digital-gui.desktop
 %{_sysconfdir}/xdg/autostart/deepcool-digital-gui.desktop
 %{_datadir}/icons/hicolor/scalable/apps/deepcool-digital.svg
+%{_datadir}/icons/hicolor/*/apps/deepcool-digital.png
+%{_datadir}/metainfo/org.deepcool.digital.gui.metainfo.xml
 %{_udevrulesdir}/99-deepcool-digital.rules
 EOF
 

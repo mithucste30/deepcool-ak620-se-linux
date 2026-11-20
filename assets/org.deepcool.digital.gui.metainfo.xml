@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.deepcool.digital.gui</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0+</project_license>
+  <name>DeepCool Digital</name>
+  <summary>Control the DeepCool DIGITAL cooler display</summary>
+  <description>
+    <p>Tray application and systemd services for DeepCool DIGITAL coolers
+    (e.g. AK620 DIGITAL / DIGITAL SE) on Linux, replicating the DeepCool
+    Digital Windows software.</p>
+    <p>Shows CPU temperature and usage on the cooler display, with
+    Temperature / Usage / Auto / Smart (load-aware) modes, °C/°F, over
+    temperature alarm, configurable refresh and alternation intervals,
+    and login autostart.</p>
+  </description>
+  <launchable type="desktop-id">deepcool-digital-gui.desktop</launchable>
+  <icon type="stock">deepcool-digital</icon>
+  <url type="homepage">https://github.com/mithucste30/deepcool-ak620-se-linux</url>
+  <provides>
+    <binary>deepcool-digital-linux</binary>
+    <binary>deepcool-digital-gui</binary>
+    <binary>deepcool-digital-smart</binary>
+  </provides>
+  <content_rating type="oars-1.1"/>
+</component>

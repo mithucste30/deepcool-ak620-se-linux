@@ -4,7 +4,7 @@
 set -euo pipefail
 
 VER="${VER:-0.11.0}"
-REL="${REL:-6}"
+REL="${REL:-7}"
 # upstream release tag (can differ from the numeric VER, e.g. "-alpha")
 UPSTREAM_TAG="${UPSTREAM_TAG:-v0.11.0-alpha}"
 SHA256="9365c604831738a5a30128084b7821e01cea16c96ca2f5cbed51b9c0336dabce"
@@ -36,6 +36,11 @@ install -D -m 0644 "$HERE/assets/deepcool-digital-smart.service" "$PKG/lib/syste
 install -D -m 0644 "$HERE/assets/deepcool-digital-gui.desktop" "$PKG/usr/share/applications/deepcool-digital-gui.desktop"
 install -D -m 0644 "$HERE/assets/deepcool-digital-gui-autostart.desktop" "$PKG/etc/xdg/autostart/deepcool-digital-gui.desktop"
 install -D -m 0644 "$HERE/assets/deepcool-digital.svg" "$PKG/usr/share/icons/hicolor/scalable/apps/deepcool-digital.svg"
+for dir in "$HERE"/assets/icons/*x*; do
+    size="$(basename "$dir")"
+    install -D -m 0644 "$dir/deepcool-digital.png" "$PKG/usr/share/icons/hicolor/$size/apps/deepcool-digital.png"
+done
+install -D -m 0644 "$HERE/assets/org.deepcool.digital.gui.metainfo.xml" "$PKG/usr/share/metainfo/org.deepcool.digital.gui.metainfo.xml"
 install -D -m 0644 "$HERE/assets/99-deepcool-digital.rules" "$PKG/lib/udev/rules.d/99-deepcool-digital.rules"
 
 # 3. Debian control + maintainer scripts
@@ -70,6 +75,9 @@ if command -v systemctl >/dev/null 2>&1; then
     if ! ls /home/*/.config/systemd/user/default.target.wants/deepcool-digital.service >/dev/null 2>&1; then
         systemctl enable --now deepcool-digital.service || true
     fi
+fi
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
 fi
 EOF
 
