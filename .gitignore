@@ -1,0 +1,6 @@
+# build outputs and downloaded artifacts
+dist/
+pkg-deb/
+pkg-rpm/
+staging/
+__pycache__/

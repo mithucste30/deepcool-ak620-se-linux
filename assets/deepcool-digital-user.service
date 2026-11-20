@@ -1,0 +1,12 @@
+[Unit]
+Description=DeepCool Digital Display (user session)
+# Managed by deepcool-digital-gui; reads DEEPCOOL_ARGS from the user config
+
+[Service]
+EnvironmentFile=%h/.config/deepcool-digital.conf
+ExecStart=/usr/bin/deepcool-digital-linux $DEEPCOOL_ARGS
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=default.target

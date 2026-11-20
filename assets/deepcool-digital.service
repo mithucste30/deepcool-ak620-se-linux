@@ -1,0 +1,12 @@
+[Unit]
+Description=DeepCool Digital Display service
+# Keeps the AK620 DIGITAL (SE) cooler screen updated with CPU temp/usage
+After=systemd-udev-trigger.service
+
+[Service]
+ExecStart=/usr/bin/deepcool-digital-linux
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

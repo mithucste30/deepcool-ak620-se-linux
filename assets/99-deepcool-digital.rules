@@ -1,0 +1,3 @@
+# Allow seated user to talk to DeepCool digital-display devices without root
+# (the systemd service runs as root and does not need this)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3633", MODE="0666", TAG+="uaccess"

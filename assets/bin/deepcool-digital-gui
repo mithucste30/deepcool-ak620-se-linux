@@ -1,0 +1,216 @@
+#!/usr/bin/env python3
+"""DeepCool Digital — GUI controller for deepcool-digital-linux.
+
+Toggle the AK620 DIGITAL (SE) display between temperature / usage / auto,
+change units, alarm and update speed. Applies instantly by writing
+~/.config/deepcool-digital.conf and restarting the *user* systemd service
+(no root needed). The system-wide service and this user service must not
+run at the same time; the GUI detects that and offers a one-time takeover.
+"""
+import os
+import shlex
+import subprocess
+import sys
+
+import gi
+gi.require_version("Gtk", "4.0")
+from gi.repository import Gtk
+
+UNIT = "deepcool-digital.service"
+CONF_FILE = os.path.expanduser("~/.config/deepcool-digital.conf")
+
+MODES = [
+    ("cpu_temp", "Temperature"),
+    ("cpu_usage", "CPU usage"),
+    ("auto", "Auto (alternate both)"),
+]
+INTERVALS = [250, 500, 1000, 2000]
+
+
+def read_conf():
+    state = {"mode": "cpu_temp", "f": False, "a": False, "u": 1000}
+    if os.path.exists(CONF_FILE):
+        for line in open(CONF_FILE):
+            if line.startswith("DEEPCOOL_ARGS="):
+                args = shlex.split(line.split("=", 1)[1])
+                if "-m" in args and args.index("-m") + 1 < len(args):
+                    state["mode"] = args[args.index("-m") + 1]
+                state["f"] = "-f" in args
+                state["a"] = "-a" in args
+                if "-u" in args and args.index("-u") + 1 < len(args) and args[args.index("-u") + 1].isdigit():
+                    state["u"] = int(args[args.index("-u") + 1])
+                break
+    return state
+
+
+def write_conf(state):
+    args = ["-m", state["mode"]]
+    if state["f"]:
+        args.append("-f")
+    if state["a"]:
+        args.append("-a")
+    args += ["-u", str(state["u"])]
+    os.makedirs(os.path.dirname(CONF_FILE), exist_ok=True)
+    with open(CONF_FILE, "w") as f:
+        f.write("DEEPCOOL_ARGS=%s\n" % shlex.quote(" ".join(args)))
+
+
+def run(cmd):
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
+def system_service_active():
+    return run(["systemctl", "is-active", "--quiet", UNIT]).returncode == 0
+
+
+class App(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id="org.deepcool.digital.gui")
+        self.state = read_conf()
+        self.locked = False
+
+    def do_activate(self):
+        win = Gtk.ApplicationWindow(application=self, title="DeepCool Digital")
+        win.set_default_size(360, 460)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_margin_top(16); box.set_margin_bottom(16)
+        box.set_margin_start(16); box.set_margin_end(16)
+        win.set_child(box)
+
+        # --- warning banner if the system service is also running ---
+        self.banner = Gtk.Label()
+        self.banner.set_visible(False)
+        self.banner.set_wrap(True)
+        box.append(self.banner)
+        self.takeover_btn = Gtk.Button(label="Take over (disable system service)")
+        self.takeover_btn.set_visible(False)
+        self.takeover_btn.connect("clicked", self.on_takeover)
+        box.append(self.takeover_btn)
+
+        # --- display mode ---
+        mode_frame = Gtk.Frame(label=" Display mode ")
+        mode_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        mode_box.set_margin_top(8); mode_box.set_margin_bottom(8)
+        mode_box.set_margin_start(12); mode_box.set_margin_end(12)
+        mode_frame.set_child(mode_box)
+        box.append(mode_frame)
+
+        self.mode_btns = {}
+        group = None
+        for value, label in MODES:
+            btn = Gtk.CheckButton(label=label)
+            if group is not None:
+                btn.set_group(group)
+            btn.connect("toggled", self.on_change, "mode", value)
+            mode_box.append(btn)
+            self.mode_btns[value] = btn
+            group = group or btn
+
+        # --- options ---
+        opt_frame = Gtk.Frame(label=" Options ")
+        opt_grid = Gtk.Grid(column_spacing=12, row_spacing=10)
+        opt_grid.set_margin_top(8); opt_grid.set_margin_bottom(8)
+        opt_grid.set_margin_start(12); opt_grid.set_margin_end(12)
+        opt_frame.set_child(opt_grid)
+        box.append(opt_frame)
+
+        self.f_btn = Gtk.CheckButton(label="Fahrenheit (°F)")
+        self.f_btn.connect("toggled", self.on_change, "f")
+        opt_grid.attach(self.f_btn, 0, 0, 1, 1)
+
+        self.a_btn = Gtk.CheckButton(label="Temperature alarm")
+        self.a_btn.connect("toggled", self.on_change, "a")
+        opt_grid.attach(self.a_btn, 0, 1, 1, 1)
+
+        lbl = Gtk.Label(label="Update interval")
+        lbl.set_halign(Gtk.Align.START)
+        opt_grid.attach(lbl, 0, 2, 1, 1)
+        self.u_dd = Gtk.DropDown.new_from_strings(["%d ms" % i for i in INTERVALS])
+        self.u_dd.connect("notify::selected", self.on_interval)
+        opt_grid.attach(self.u_dd, 1, 2, 1, 1)
+
+        # --- status ---
+        self.status = Gtk.Label()
+        self.status.set_wrap(True)
+        box.append(self.status)
+
+        note = Gtk.Label(label="Changes apply instantly. The display keeps running after this window is closed.")
+        note.set_wrap(True)
+        note.set_halign(Gtk.Align.START)
+        note.set_css_classes(["dim-label"])
+        box.append(note)
+
+        self.sync_widgets()
+        self.refresh_banner()
+        self.update_status()
+        win.present()
+
+    # ---------- helpers ----------
+
+    def sync_widgets(self):
+        self.locked = True
+        for value, btn in self.mode_btns.items():
+            btn.set_active(self.state["mode"] == value)
+        self.f_btn.set_active(self.state["f"])
+        self.a_btn.set_active(self.state["a"])
+        self.u_dd.set_selected(INTERVALS.index(self.state["u"]) if self.state["u"] in INTERVALS else 2)
+        self.locked = False
+
+    def apply(self):
+        write_conf(self.state)
+        run(["systemctl", "--user", "enable", UNIT])
+        run(["systemctl", "--user", "restart", UNIT])
+        self.update_status()
+
+    def update_status(self):
+        r = run(["systemctl", "--user", "is-active", UNIT])
+        mode = dict(MODES)[self.state["mode"]]
+        unit = "°F" if self.state["f"] else "°C"
+        if r.stdout.strip() == "active":
+            self.status.set_markup("<b>● Running</b> — %s (%s), %d ms" % (mode, unit, self.state["u"]))
+        else:
+            self.status.set_markup("<b>○ Not running</b> — %s (%s), %d ms" % (mode, unit, self.state["u"]))
+
+    def refresh_banner(self):
+        conflict = system_service_active()
+        self.banner.set_visible(conflict)
+        self.takeover_btn.set_visible(conflict)
+        if conflict:
+            self.banner.set_markup(
+                "<b>System service is running too.</b>\n"
+                "Both services write to the display; let your session manage it.")
+
+    # ---------- callbacks ----------
+
+    def on_change(self, btn, key, value=None):
+        if self.locked:
+            return
+        if key == "mode":
+            if btn.get_active():
+                self.state["mode"] = value
+        else:
+            self.state[key] = btn.get_active()
+        self.apply()
+
+    def on_interval(self, dd, _pspec):
+        if self.locked:
+            return
+        self.state["u"] = INTERVALS[dd.get_selected()]
+        self.apply()
+
+    def on_takeover(self, _btn):
+        self.takeover_btn.set_sensitive(False)
+        r = subprocess.run(
+            ["pkexec", "systemctl", "disable", "--now", UNIT],
+            capture_output=True, text=True)
+        if r.returncode == 0:
+            self.apply()
+        else:
+            self.status.set_text("Takeover failed: %s" % (r.stderr.strip() or "cancelled"))
+        self.takeover_btn.set_sensitive(True)
+        self.refresh_banner()
+
+
+if __name__ == "__main__":
+    App().run(sys.argv)
