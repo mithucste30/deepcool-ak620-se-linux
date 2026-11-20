@@ -169,12 +169,22 @@ def auto_loop(dwell):
 
     subprocess.run(["systemctl", "--user", "stop", UNIT], capture_output=True)
     fd = None
+
+    def dev_write(payload):
+        """hidraw writes need a leading 0x00 report ID for unnumbered
+        reports (the hidapi/libusb backend the driver uses sends raw
+        interrupt transfers without one)."""
+        try:
+            os.write(fd, b"\x00" + bytes(payload))
+        except OSError:
+            os.write(fd, bytes(payload))
+
     try:
         fd = os.open(path, os.O_WRONLY)
-        # init sequence: [16, 170, ...]
+        # init sequence: [16, 170, ...] -> SE wire form [170, ...]
         init = bytearray(64)
         init[0], init[1] = 16, 170
-        os.write(fd, bytes(init[1:]) + b"\x00")
+        dev_write(init[1:])
 
         print("auto mode (direct): %s, alternating every %gs, update %.2fs"
               % (path, dwell, update_s), flush=True)
@@ -210,7 +220,7 @@ def auto_loop(dwell):
             pkt[4] = value % 100 // 10
             pkt[5] = value % 10
             pkt[6] = 1 if (alarm and temp >= (194 if fahrenheit else 90)) else 0
-            os.write(fd, bytes(pkt[1:]) + b"\x00")  # SE devices: no report ID
+            dev_write(pkt[1:])  # SE devices: no protocol prefix byte
     finally:
         if fd is not None:
             os.close(fd)
