@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""DeepCool Digital — smart mode watcher.
+"""DeepCool Digital — mode manager (smart / auto).
 
-Flips the AK620 DIGITAL (SE) display between CPU usage and temperature
-based on system load, with hysteresis to avoid flapping:
+Two modes, configured via ~/.config/deepcool-digital-manager.env
+(which overrides the unit's Environment= defaults):
 
-    load >= BUSY_PCT  -> cpu_usage
-    load <= IDLE_PCT  -> cpu_temp
-    in between        -> keep current mode
+  MANAGER_MODE=auto    alternate Temperature <-> CPU usage every DWELL_SEC
+                       (replaces the upstream `-m auto` whose interval is
+                       hard-coded at 5 s and not configurable)
+  MANAGER_MODE=smart   load-aware switching with hysteresis:
+                       load >= BUSY_PCT -> cpu_usage, <= IDLE_PCT -> cpu_temp
+
+Other keys: DWELL_SEC (10), BUSY_PCT (50), IDLE_PCT (25), POLL_SEC (2).
 
 Runs as a user service; applies changes by rewriting
 ~/.config/deepcool-digital.conf (preserving -f/-a/-u flags) and
 restarting the deepcool-digital user service.
-
-Configuration via environment (see deepcool-digital-smart.service):
-    BUSY_PCT (default 50), IDLE_PCT (default 25), POLL_SEC (default 2)
 """
 import os
 import shlex
@@ -22,10 +23,28 @@ import sys
 import time
 
 CONF = os.path.expanduser("~/.config/deepcool-digital.conf")
+ENV_FILE = os.path.expanduser("~/.config/deepcool-digital-manager.env")
 UNIT = "deepcool-digital.service"
-BUSY = float(os.environ.get("BUSY_PCT", "50"))
-IDLE = float(os.environ.get("IDLE_PCT", "25"))
-POLL = float(os.environ.get("POLL_SEC", "2"))
+
+DEFAULTS = {
+    "MANAGER_MODE": "smart",
+    "DWELL_SEC": "10",
+    "BUSY_PCT": "50",
+    "IDLE_PCT": "25",
+    "POLL_SEC": "2",
+}
+
+
+def load_cfg():
+    cfg = dict(os.environ)
+    try:
+        for line in open(ENV_FILE):
+            key, _, val = line.strip().partition("=")
+            if key and not key.startswith("#"):
+                cfg[key] = val
+    except FileNotFoundError:
+        pass
+    return cfg
 
 
 def cpu_times():
@@ -70,13 +89,13 @@ def set_mode(mode):
                    capture_output=True, text=True)
 
 
-def main():
+def smart_loop(busy, idle, poll):
     print("smart mode: load >= %g%% -> cpu_usage, load <= %g%% -> cpu_temp, poll %gs"
-          % (BUSY, IDLE, POLL), flush=True)
+          % (busy, idle, poll), flush=True)
     prev = cpu_times()
     desired = current_mode()
     while True:
-        time.sleep(POLL)
+        time.sleep(poll)
         cur = cpu_times()
         d_idle, d_total = cur[0] - prev[0], cur[1] - prev[1]
         prev = cur
@@ -84,9 +103,9 @@ def main():
             continue
         load = 100.0 * (1.0 - d_idle / d_total)
         new = None
-        if load >= BUSY and desired != "cpu_usage":
+        if load >= busy and desired != "cpu_usage":
             new = "cpu_usage"
-        elif load <= IDLE and desired != "cpu_temp":
+        elif load <= idle and desired != "cpu_temp":
             new = "cpu_temp"
         if new:
             desired = new
@@ -94,8 +113,31 @@ def main():
             set_mode(new)
 
 
-if __name__ == "__main__":
+def auto_loop(dwell):
+    print("auto mode: alternating cpu_temp <-> cpu_usage every %gs" % dwell, flush=True)
+    modes = ["cpu_temp", "cpu_usage"]
+    i = 0
+    while True:
+        mode = modes[i % 2]
+        i += 1
+        set_mode(mode)
+        print("auto: showing %s for %gs" % (mode, dwell), flush=True)
+        time.sleep(dwell)
+
+
+def main():
+    cfg = load_cfg()
+    mode = cfg.get("MANAGER_MODE", DEFAULTS["MANAGER_MODE"]).lower()
     try:
-        main()
+        if mode == "auto":
+            auto_loop(float(cfg.get("DWELL_SEC", DEFAULTS["DWELL_SEC"])))
+        else:
+            smart_loop(float(cfg.get("BUSY_PCT", DEFAULTS["BUSY_PCT"])),
+                       float(cfg.get("IDLE_PCT", DEFAULTS["IDLE_PCT"])),
+                       float(cfg.get("POLL_SEC", DEFAULTS["POLL_SEC"])))
     except KeyboardInterrupt:
         sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

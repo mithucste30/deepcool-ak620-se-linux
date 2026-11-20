@@ -27,6 +27,7 @@ except (ValueError, ImportError):
 UNIT = "deepcool-digital.service"
 SMART_UNIT = "deepcool-digital-smart.service"
 CONF_FILE = os.path.expanduser("~/.config/deepcool-digital.conf")
+MANAGER_FILE = os.path.expanduser("~/.config/deepcool-digital-manager.env")
 ICON = "deepcool-digital"
 SYSTEM_AUTOSTART = "/etc/xdg/autostart/deepcool-digital-gui.desktop"
 AUTOSTART_FILE = os.path.expanduser("~/.config/autostart/deepcool-digital-gui.desktop")
@@ -47,6 +48,28 @@ MODES = [
     ("smart", "Smart (usage when busy)"),
 ]
 INTERVALS = [250, 500, 1000, 2000]
+DWELLS = [5, 10, 15, 30, 60]
+
+
+def read_manager():
+    cfg = {"MANAGER_MODE": "smart", "DWELL_SEC": "10"}
+    if os.path.exists(MANAGER_FILE):
+        for line in open(MANAGER_FILE):
+            key, _, val = line.strip().partition("=")
+            if key and not key.startswith("#"):
+                cfg[key] = val
+    return cfg
+
+
+def write_manager(cfg):
+    os.makedirs(os.path.dirname(MANAGER_FILE), exist_ok=True)
+    with open(MANAGER_FILE, "w") as f:
+        for key, val in cfg.items():
+            f.write("%s=%s\n" % (key, val))
+
+
+def manager_mode():
+    return read_manager().get("MANAGER_MODE", "smart")
 
 
 def read_conf():
@@ -123,6 +146,7 @@ class App(Gtk.Application):
     def __init__(self):
         super().__init__(application_id="org.deepcool.digital.gui")
         self.state = read_conf()
+        self.state["dwell"] = int(read_manager().get("DWELL_SEC", "10"))
         self.locked = False
         self.window = None
         self.tray_menu_items = {}
@@ -201,9 +225,18 @@ class App(Gtk.Application):
         self.u_dd.connect("changed", self.on_interval)
         opt_grid.attach(self.u_dd, 1, 2, 1, 1)
 
+        dlbl = Gtk.Label(label="Auto: switch every")
+        dlbl.set_halign(Gtk.Align.START)
+        opt_grid.attach(dlbl, 0, 3, 1, 1)
+        self.dwell_dd = Gtk.ComboBoxText()
+        for d in DWELLS:
+            self.dwell_dd.append_text("%d s" % d)
+        self.dwell_dd.connect("changed", self.on_dwell)
+        opt_grid.attach(self.dwell_dd, 1, 3, 1, 1)
+
         self.start_btn = Gtk.CheckButton(label="Start at login (system tray)")
         self.start_btn.connect("toggled", self.on_autostart)
-        opt_grid.attach(self.start_btn, 0, 3, 2, 1)
+        opt_grid.attach(self.start_btn, 0, 4, 2, 1)
 
         # --- status + note ---
         self.status = Gtk.Label()
@@ -276,28 +309,35 @@ class App(Gtk.Application):
 
     def sync_widgets(self):
         self.locked = True
-        smart_on = smart_active()
+        mgr_on = smart_active()
+        mgr_mode = manager_mode()
         for value, btn in self.mode_btns.items():
-            if value == "smart":
-                btn.set_active(smart_on)
-            else:
-                btn.set_active(self.state["mode"] == value and not smart_on)
+            btn.set_active(self.radio_state(value, mgr_on, mgr_mode))
         for value, mitem in self.tray_menu_items.items():
-            if value == "smart":
-                mitem.set_active(smart_on)
-            else:
-                mitem.set_active(self.state["mode"] == value and not smart_on)
+            mitem.set_active(self.radio_state(value, mgr_on, mgr_mode))
         self.f_btn.set_active(self.state["f"])
         self.a_btn.set_active(self.state["a"])
         self.u_dd.set_active(INTERVALS.index(self.state["u"]) if self.state["u"] in INTERVALS else 2)
+        self.dwell_dd.set_active(DWELLS.index(self.state["dwell"]) if self.state["dwell"] in DWELLS else 1)
         self.start_btn.set_active(autostart_state())
         self.locked = False
         self.update_status()
 
+    def radio_state(self, value, mgr_on, mgr_mode):
+        if mgr_on:
+            return value == mgr_mode  # smart or auto managed by the manager
+        return self.state["mode"] == value  # plain conf mode
+
     def choose_mode(self, value):
         """Single entry point for mode selection (window radios + tray menu)."""
-        if value == "smart":
-            run(["systemctl", "--user", "enable", "--now", SMART_UNIT])
+        if value in ("smart", "auto"):
+            cfg = read_manager()
+            cfg["MANAGER_MODE"] = value
+            if value == "auto":
+                cfg["DWELL_SEC"] = str(self.state["dwell"])
+            write_manager(cfg)
+            run(["systemctl", "--user", "enable", SMART_UNIT])
+            run(["systemctl", "--user", "restart", SMART_UNIT])
         else:
             run(["systemctl", "--user", "disable", "--now", SMART_UNIT])
             self.state["mode"] = value
@@ -314,8 +354,13 @@ class App(Gtk.Application):
         mode = dict(MODES)[self.state["mode"]]
         unit = "°F" if self.state["f"] else "°C"
         prefix = "● Running" if r.stdout.strip() == "active" else "○ Not running"
-        smart = " — Smart: switching by CPU load" if smart_active() else ""
-        self.status.set_markup("<b>%s</b> — %s (%s), %d ms%s" % (prefix, mode, unit, self.state["u"], smart))
+        extra = ""
+        if smart_active():
+            if manager_mode() == "auto":
+                extra = " — Auto: switching every %d s" % self.state["dwell"]
+            else:
+                extra = " — Smart: switching by CPU load"
+        self.status.set_markup("<b>%s</b> — %s (%s), %d ms%s" % (prefix, mode, unit, self.state["u"], extra))
 
     def refresh_banner(self):
         conflict = system_service_active()
@@ -355,6 +400,17 @@ class App(Gtk.Application):
         if self.locked:
             return
         set_autostart(btn.get_active())
+
+    def on_dwell(self, _dd):
+        if self.locked:
+            return
+        self.state["dwell"] = DWELLS[self.dwell_dd.get_active()]
+        cfg = read_manager()
+        cfg["DWELL_SEC"] = str(self.state["dwell"])
+        write_manager(cfg)
+        if smart_active() and manager_mode() == "auto":
+            run(["systemctl", "--user", "restart", SMART_UNIT])
+        self.update_status()
 
     def on_takeover(self, _btn):
         self.takeover_btn.set_sensitive(False)

@@ -1,6 +1,7 @@
 [Unit]
-Description=DeepCool Digital smart mode (load-aware display switching)
-# Enabled/disabled from deepcool-digital-gui ("Smart" option)
+Description=DeepCool Digital mode manager (Smart load-aware / Auto alternation)
+# Enabled/disabled from deepcool-digital-gui ("Smart"/"Auto" options);
+# runtime config in ~/.config/deepcool-digital-manager.env
 
 [Service]
 ExecStart=/usr/bin/deepcool-digital-smart
