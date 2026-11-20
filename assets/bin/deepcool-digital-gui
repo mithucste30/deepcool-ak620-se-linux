@@ -48,7 +48,7 @@ MODES = [
     ("smart", "Smart (usage when busy)"),
 ]
 INTERVALS = [250, 500, 1000, 2000]
-DWELLS = [5, 10, 15, 30, 60]
+DWELLS = [2, 5, 10, 15, 30, 60]
 
 
 def read_manager():

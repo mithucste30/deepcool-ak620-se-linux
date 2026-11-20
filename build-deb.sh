@@ -4,7 +4,7 @@
 set -euo pipefail
 
 VER="${VER:-0.11.0}"
-REL="${REL:-11}"
+REL="${REL:-12}"
 # upstream release tag (can differ from the numeric VER, e.g. "-alpha")
 UPSTREAM_TAG="${UPSTREAM_TAG:-v0.11.0-alpha}"
 SHA256="9365c604831738a5a30128084b7821e01cea16c96ca2f5cbed51b9c0336dabce"
