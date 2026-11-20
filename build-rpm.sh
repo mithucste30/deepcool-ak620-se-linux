@@ -6,8 +6,10 @@ set -euo pipefail
 
 VER="${VER:-0.11.0}"
 REL="${REL:-3}"
+# upstream release tag (can differ from the numeric VER, e.g. "-alpha")
+UPSTREAM_TAG="${UPSTREAM_TAG:-v0.11.0-alpha}"
 SHA256="9365c604831738a5a30128084b7821e01cea16c96ca2f5cbed51b9c0336dabce"
-URL="https://github.com/Nortank12/deepcool-digital-linux/releases/download/v${VER}/deepcool-digital-linux"
+URL="https://github.com/Nortank12/deepcool-digital-linux/releases/download/${UPSTREAM_TAG}/deepcool-digital-linux"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 STAGING="$HERE/staging"
 TOPDIR="$HERE/pkg-rpm"
