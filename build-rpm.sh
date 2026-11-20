@@ -47,6 +47,8 @@ tar -C "$TOPDIR/SOURCES" -czf "$TOPDIR/SOURCES/deepcool-digital-linux-${VER}.tar
 
 # 3. Spec file
 cat > "$TOPDIR/SPECS/deepcool-digital-linux.spec" <<EOF
+# prebuilt upstream binary: no sources, no debuginfo package
+%define debug_package %{nil}
 Name:    deepcool-digital-linux
 Version: ${VER}
 Release: ${REL}%{?dist}
