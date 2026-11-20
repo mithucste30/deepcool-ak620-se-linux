@@ -114,14 +114,118 @@ def smart_loop(busy, idle, poll):
 
 
 def auto_loop(dwell):
-    print("auto mode: alternating cpu_temp <-> cpu_usage every %gs" % dwell, flush=True)
+    """Alternate temp/usage with INSTANT transitions.
+
+    Restarts of the deepcool-digital driver re-send the device init
+    sequence, visibly re-initializing the screen. Instead, stop the
+    driver and drive the hidraw device directly (protocol per upstream
+    ak_series.rs): packets are [16, mode, bar, d1, d2, d3, alarm], with
+    the SE variant shifting bytes left (no report ID). Mode switches are
+    just different packet contents — no re-init, no flash.
+    """
+    import glob as _glob
+    import signal
+
+    # let the finally-handoff run when systemd stops us (SIGTERM would
+    # otherwise kill the process without unwinding)
+    def _term(_signum, _frame):
+        raise SystemExit(0)
+    signal.signal(signal.SIGTERM, _term)
+
+    def find_hidraw():
+        for h in sorted(_glob.glob("/sys/class/hidraw/*")):
+            try:
+                with open(h + "/device/uevent") as f:
+                    if "0003:00003633" in f.read():
+                        return "/dev/" + h.rsplit("/", 1)[1]
+            except OSError:
+                continue
+        return None
+
+    def read_temp_c():
+        for hw in sorted(_glob.glob("/sys/class/hwmon/hwmon*")):
+            try:
+                with open(hw + "/name") as f:
+                    if f.read().strip() != "k10temp":
+                        continue
+                for t in sorted(_glob.glob(hw + "/temp*_input")):
+                    with open(t) as f:
+                        return int(f.read().strip()) // 1000
+            except OSError:
+                continue
+        return 0
+
+    args = read_args()
+    update_s = max(0.25, int(args[args.index("-u") + 1]) / 1000.0) if "-u" in args else 1.0
+    fahrenheit = "-f" in args
+    alarm = "-a" in args
+
+    path = find_hidraw()
+    if not path:
+        print("auto mode: no DeepCool hidraw device found; "
+              "falling back to restart-based switching", flush=True)
+        auto_loop_restarts(dwell)
+        return
+
+    subprocess.run(["systemctl", "--user", "stop", UNIT], capture_output=True)
+    fd = None
+    try:
+        fd = os.open(path, os.O_WRONLY)
+        # init sequence: [16, 170, ...]
+        init = bytearray(64)
+        init[0], init[1] = 16, 170
+        os.write(fd, bytes(init[1:]) + b"\x00")
+
+        print("auto mode (direct): %s, alternating every %gs, update %.2fs"
+              % (path, dwell, update_s), flush=True)
+        mode = "cpu_temp"
+        last_flip = time.monotonic()
+        prev = cpu_times()
+        usage = 0
+        while True:
+            time.sleep(update_s)
+            cur = cpu_times()
+            d_idle, d_total = cur[0] - prev[0], cur[1] - prev[1]
+            prev = cur
+            if d_total > 0:
+                usage = min(100, int(100.0 * (1.0 - d_idle / d_total)))
+
+            if time.monotonic() - last_flip >= dwell:
+                mode = "cpu_usage" if mode == "cpu_temp" else "cpu_temp"
+                last_flip = time.monotonic()
+
+            temp = read_temp_c()
+            if fahrenheit:
+                temp = int(temp * 9 / 5 + 32)
+            pkt = bytearray(64)
+            pkt[0] = 16
+            if mode == "cpu_temp":
+                pkt[1] = 35 if fahrenheit else 19
+                value = temp
+            else:
+                pkt[1] = 76
+                value = usage
+            pkt[2] = 1 if usage < 15 else int(round(usage / 10.0))
+            pkt[3] = value // 100
+            pkt[4] = value % 100 // 10
+            pkt[5] = value % 10
+            pkt[6] = 1 if (alarm and temp >= (194 if fahrenheit else 90)) else 0
+            os.write(fd, bytes(pkt[1:]) + b"\x00")  # SE devices: no report ID
+    finally:
+        if fd is not None:
+            os.close(fd)
+        # hand the display back to the driver
+        subprocess.run(["systemctl", "--user", "start", UNIT], capture_output=True)
+
+
+def auto_loop_restarts(dwell):
     modes = ["cpu_temp", "cpu_usage"]
     i = 0
     while True:
         mode = modes[i % 2]
         i += 1
         set_mode(mode)
-        print("auto: showing %s for %gs" % (mode, dwell), flush=True)
+        print("auto: showing %s for %gs (restart-based)" % (mode, dwell), flush=True)
         time.sleep(dwell)
 
 

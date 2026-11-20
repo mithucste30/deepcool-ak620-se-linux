@@ -13,7 +13,7 @@ CPU temperature + usage, like the Windows "DeepCool Digital" app.
 | `build-deb.sh` | Build `dist/deepcool-digital-linux_<ver>_amd64.deb` |
 | `build-rpm.sh` | Build `dist/deepcool-digital-linux-<ver>.x86_64.rpm` (needs `rpmbuild`, on Debian-family: `apt install rpm`) |
 | `assets/bin/deepcool-digital-gui` | GTK3 + Ayatana **tray app** to toggle display mode (`/usr/bin/`, app grid entry "DeepCool Digital") |
-| `assets/bin/deepcool-digital-smart` | load-aware mode watcher (Smart mode) |
+| `assets/bin/deepcool-digital-smart` | mode manager: Smart (load-aware) + Auto (alternates temp/usage with **instant** transitions — writes display packets directly to the hidraw device; restarting the driver per flip would re-init the screen) |
 | `assets/deepcool-digital.service` | system-level systemd unit (headless use, `/lib/systemd/system/`) |
 | `assets/deepcool-digital-user.service` | user-level systemd unit driven by the GUI (`/lib/systemd/user/`, config `~/.config/deepcool-digital.conf`) |
 | `assets/deepcool-digital-smart.service` | user-level unit for the Smart watcher |
