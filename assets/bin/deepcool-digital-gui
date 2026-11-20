@@ -28,6 +28,17 @@ UNIT = "deepcool-digital.service"
 SMART_UNIT = "deepcool-digital-smart.service"
 CONF_FILE = os.path.expanduser("~/.config/deepcool-digital.conf")
 ICON = "deepcool-digital"
+SYSTEM_AUTOSTART = "/etc/xdg/autostart/deepcool-digital-gui.desktop"
+AUTOSTART_FILE = os.path.expanduser("~/.config/autostart/deepcool-digital-gui.desktop")
+
+AUTOSTART_ENTRY = """[Desktop Entry]
+Type=Application
+Name=DeepCool Digital
+Comment=Tray control for the DeepCool cooler display
+Exec=/usr/bin/deepcool-digital-gui
+Icon=deepcool-digital
+Terminal=false
+"""
 
 MODES = [
     ("cpu_temp", "Temperature"),
@@ -79,6 +90,33 @@ def system_service_active():
 
 def smart_active():
     return run(["systemctl", "--user", "is-active", "--quiet", SMART_UNIT]).returncode == 0
+
+
+def autostart_state():
+    """User override file decides; otherwise default to the packaged entry."""
+    if os.path.exists(AUTOSTART_FILE):
+        for line in open(AUTOSTART_FILE):
+            key, _, val = line.strip().partition("=")
+            if key.strip().lower() == "hidden":
+                return val.strip().lower() not in ("true", "1")
+        return True
+    return os.path.exists(SYSTEM_AUTOSTART)
+
+
+def set_autostart(enabled):
+    if enabled and os.path.exists(SYSTEM_AUTOSTART):
+        # drop the user override; the packaged system entry applies
+        try:
+            os.remove(AUTOSTART_FILE)
+        except FileNotFoundError:
+            pass
+        return
+    os.makedirs(os.path.dirname(AUTOSTART_FILE), exist_ok=True)
+    with open(AUTOSTART_FILE, "w") as f:
+        f.write(AUTOSTART_ENTRY)
+        f.write("X-GNOME-Autostart-enabled=%s\n" % ("true" if enabled else "false"))
+        if not enabled:
+            f.write("Hidden=true\n")
 
 
 class App(Gtk.Application):
@@ -163,6 +201,10 @@ class App(Gtk.Application):
         self.u_dd.connect("changed", self.on_interval)
         opt_grid.attach(self.u_dd, 1, 2, 1, 1)
 
+        self.start_btn = Gtk.CheckButton(label="Start at login (system tray)")
+        self.start_btn.connect("toggled", self.on_autostart)
+        opt_grid.attach(self.start_btn, 0, 3, 2, 1)
+
         # --- status + note ---
         self.status = Gtk.Label()
         self.status.set_line_wrap(True)
@@ -192,13 +234,17 @@ class App(Gtk.Application):
 
         group = None
         for value, label in MODES:
-            mitem = Gtk.RadioMenuItem(label=label)
-            if group is not None:
-                mitem.set_group([group])
-            mitem.connect("toggled", self.on_mode_toggled, value)
+            if group is None:
+                mitem = Gtk.RadioMenuItem(label=label)
+            else:
+                mitem = Gtk.RadioMenuItem.new_with_label_from_widget(group, label)
             menu.append(mitem)
             self.tray_menu_items[value] = mitem
             group = group or mitem
+        # connect handlers only after all groups are set, so set_group's
+        # internal signal emissions don't fire mode changes at startup
+        for value, mitem in self.tray_menu_items.items():
+            mitem.connect("toggled", self.on_mode_toggled, value)
 
         menu.append(Gtk.SeparatorMenuItem())
         quit_item = Gtk.MenuItem(label="Quit")
@@ -211,7 +257,12 @@ class App(Gtk.Application):
         self.indicator.set_status(Ayatana.IndicatorStatus.ACTIVE)
         self.indicator.set_title("DeepCool Digital")
         self.indicator.set_menu(menu)
-        self.indicator.connect("activate", lambda *_: self.toggle_window())
+        try:
+            # left-click toggles the window where the backend provides the
+            # signal; otherwise clicking the icon opens the menu
+            self.indicator.connect("activate", lambda *_: self.toggle_window())
+        except TypeError:
+            pass
         self.sync_widgets()
 
     def toggle_window(self):
@@ -239,6 +290,7 @@ class App(Gtk.Application):
         self.f_btn.set_active(self.state["f"])
         self.a_btn.set_active(self.state["a"])
         self.u_dd.set_active(INTERVALS.index(self.state["u"]) if self.state["u"] in INTERVALS else 2)
+        self.start_btn.set_active(autostart_state())
         self.locked = False
         self.update_status()
 
@@ -298,6 +350,11 @@ class App(Gtk.Application):
         self.state["u"] = INTERVALS[self.u_dd.get_active()]
         self.apply()
         self.update_status()
+
+    def on_autostart(self, btn):
+        if self.locked:
+            return
+        set_autostart(btn.get_active())
 
     def on_takeover(self, _btn):
         self.takeover_btn.set_sensitive(False)

@@ -62,6 +62,7 @@ Toggles apply instantly, no root:
 
 - Display mode: **Temperature / CPU usage / Auto / Smart** (load-aware)
 - Fahrenheit, temperature alarm, update interval (250–2000 ms)
+- **Start at login** toggle (XDG autostart override in `~/.config/autostart/`)
 
 On first run the GUI moves display ownership from the system service to a
 **user** service (`systemctl --user`), which reads `DEEPCOOL_ARGS` from
