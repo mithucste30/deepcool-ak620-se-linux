@@ -171,20 +171,18 @@ def auto_loop(dwell):
     fd = None
 
     def dev_write(payload):
-        """hidraw writes need a leading 0x00 report ID for unnumbered
-        reports (the hidapi/libusb backend the driver uses sends raw
-        interrupt transfers without one)."""
-        try:
-            os.write(fd, b"\x00" + bytes(payload))
-        except OSError:
-            os.write(fd, bytes(payload))
+        """Verified against usbmon capture of the upstream driver: the
+        device uses a NUMBERED output report (id 16), so the full packet
+        [16, mode, bar, d1, d2, d3, alarm, ...] goes to hidraw verbatim —
+        no SE left-shift, no 0x00 prefix."""
+        os.write(fd, bytes(payload))
 
     try:
         fd = os.open(path, os.O_WRONLY)
-        # init sequence: [16, 170, ...] -> SE wire form [170, ...]
+        # init sequence: [16, 170, ...]
         init = bytearray(64)
         init[0], init[1] = 16, 170
-        dev_write(init[1:])
+        dev_write(init)
 
         print("auto mode (direct): %s, alternating every %gs, update %.2fs"
               % (path, dwell, update_s), flush=True)
@@ -220,7 +218,7 @@ def auto_loop(dwell):
             pkt[4] = value % 100 // 10
             pkt[5] = value % 10
             pkt[6] = 1 if (alarm and temp >= (194 if fahrenheit else 90)) else 0
-            dev_write(pkt[1:])  # SE devices: no protocol prefix byte
+            dev_write(pkt)
     finally:
         if fd is not None:
             os.close(fd)
