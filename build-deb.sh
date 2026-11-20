@@ -4,7 +4,7 @@
 set -euo pipefail
 
 VER="${VER:-0.11.0}"
-REL="${REL:-2}"
+REL="${REL:-3}"
 SHA256="9365c604831738a5a30128084b7821e01cea16c96ca2f5cbed51b9c0336dabce"
 URL="https://github.com/Nortank12/deepcool-digital-linux/releases/download/v${VER}/deepcool-digital-linux"
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -32,6 +32,8 @@ install -D -m 0644 "$HERE/assets/deepcool-digital.service" "$PKG/lib/systemd/sys
 install -D -m 0644 "$HERE/assets/deepcool-digital-user.service" "$PKG/lib/systemd/user/deepcool-digital.service"
 install -D -m 0644 "$HERE/assets/deepcool-digital-smart.service" "$PKG/lib/systemd/user/deepcool-digital-smart.service"
 install -D -m 0644 "$HERE/assets/deepcool-digital-gui.desktop" "$PKG/usr/share/applications/deepcool-digital-gui.desktop"
+install -D -m 0644 "$HERE/assets/deepcool-digital-gui-autostart.desktop" "$PKG/etc/xdg/autostart/deepcool-digital-gui.desktop"
+install -D -m 0644 "$HERE/assets/deepcool-digital.svg" "$PKG/usr/share/icons/hicolor/scalable/apps/deepcool-digital.svg"
 install -D -m 0644 "$HERE/assets/99-deepcool-digital.rules" "$PKG/lib/udev/rules.d/99-deepcool-digital.rules"
 
 # 3. Debian control + maintainer scripts
@@ -42,7 +44,7 @@ Version: ${VER}-${REL}
 Section: admin
 Priority: optional
 Architecture: amd64
-Depends: python3-gi, gir1.2-gtk-4.0
+Depends: python3-gi, gir1.2-gtk-3.0, gir1.2-ayatanaappindicator3-0.1
 Maintainer: mithu <mithu@localhost>
 Description: DeepCool DIGITAL cooler display driver for Linux
  Drives the digital display on DeepCool DIGITAL coolers (e.g. AK620

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=DeepCool Digital
+Comment=Tray control for the DeepCool cooler display
+Exec=/usr/bin/deepcool-digital-gui
+Icon=deepcool-digital
+Terminal=false
+X-GNOME-Autostart-enabled=true
+Categories=System;Monitor;

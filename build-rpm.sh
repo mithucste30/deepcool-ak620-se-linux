@@ -5,7 +5,7 @@
 set -euo pipefail
 
 VER="${VER:-0.11.0}"
-REL="${REL:-2}"
+REL="${REL:-3}"
 SHA256="9365c604831738a5a30128084b7821e01cea16c96ca2f5cbed51b9c0336dabce"
 URL="https://github.com/Nortank12/deepcool-digital-linux/releases/download/v${VER}/deepcool-digital-linux"
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -38,6 +38,8 @@ install -m 0755 "$HERE/assets/bin/deepcool-digital-smart"  "$SRC/deepcool-digita
 install -m 0644 "$HERE/assets/deepcool-digital-user.service" "$SRC/deepcool-digital-user.service"
 install -m 0644 "$HERE/assets/deepcool-digital-smart.service" "$SRC/deepcool-digital-smart.service"
 install -m 0644 "$HERE/assets/deepcool-digital-gui.desktop" "$SRC/deepcool-digital-gui.desktop"
+install -m 0644 "$HERE/assets/deepcool-digital-gui-autostart.desktop" "$SRC/deepcool-digital-gui-autostart.desktop"
+install -m 0644 "$HERE/assets/deepcool-digital.svg" "$SRC/deepcool-digital.svg"
 install -m 0644 "$HERE/assets/99-deepcool-digital.rules"   "$SRC/99-deepcool-digital.rules"
 tar -C "$TOPDIR/SOURCES" -czf "$TOPDIR/SOURCES/deepcool-digital-linux-${VER}.tar.gz" "deepcool-digital-linux-${VER}"
 
@@ -53,7 +55,8 @@ Source0: %{name}-%{version}.tar.gz
 BuildArch: x86_64
 Requires: systemd
 Requires: python3-gobject
-Requires: gtk4
+Requires: gtk3
+Requires: libayatana-appindicator-gtk3
 
 # Macro fallbacks so this builds with plain rpmbuild (e.g. Debian's rpm package)
 %if %{undefined _unitdir}
@@ -86,6 +89,8 @@ install -D -m 0644 deepcool-digital.service %{buildroot}/%{_unitdir}/deepcool-di
 install -D -m 0644 deepcool-digital-user.service %{buildroot}/%{_userunitdir}/deepcool-digital.service
 install -D -m 0644 deepcool-digital-smart.service %{buildroot}/%{_userunitdir}/deepcool-digital-smart.service
 install -D -m 0644 deepcool-digital-gui.desktop %{buildroot}/%{_datadir}/applications/deepcool-digital-gui.desktop
+install -D -m 0644 deepcool-digital-gui-autostart.desktop %{buildroot}/%{_sysconfdir}/xdg/autostart/deepcool-digital-gui.desktop
+install -D -m 0644 deepcool-digital.svg %{buildroot}/%{_datadir}/icons/hicolor/scalable/apps/deepcool-digital.svg
 install -D -m 0644 99-deepcool-digital.rules %{buildroot}/%{_udevrulesdir}/99-deepcool-digital.rules
 
 %post
@@ -107,6 +112,8 @@ fi
 %{_userunitdir}/deepcool-digital.service
 %{_userunitdir}/deepcool-digital-smart.service
 %{_datadir}/applications/deepcool-digital-gui.desktop
+%{_sysconfdir}/xdg/autostart/deepcool-digital-gui.desktop
+%{_datadir}/icons/hicolor/scalable/apps/deepcool-digital.svg
 %{_udevrulesdir}/99-deepcool-digital.rules
 EOF
 

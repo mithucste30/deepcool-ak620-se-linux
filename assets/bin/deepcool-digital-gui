@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """DeepCool Digital — GUI controller for deepcool-digital-linux.
 
-Toggle the AK620 DIGITAL (SE) display between temperature / usage / auto,
-change units, alarm and update speed. Applies instantly by writing
-~/.config/deepcool-digital.conf and restarting the *user* systemd service
-(no root needed). The system-wide service and this user service must not
-run at the same time; the GUI detects that and offers a one-time takeover.
+GTK3 + Ayatana AppIndicator: lives in the system tray, window close hides
+to tray. Toggles the AK620 DIGITAL (SE) display between temperature /
+usage / auto / smart (load-aware) instantly and without root by rewriting
+~/.config/deepcool-digital.conf and restarting the *user* systemd service.
+The system-wide service and the user service must not run at the same
+time; the GUI detects that and offers a one-time takeover.
 """
 import os
 import shlex
@@ -13,11 +14,20 @@ import subprocess
 import sys
 
 import gi
-gi.require_version("Gtk", "4.0")
+gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk
 
+try:
+    gi.require_version("AyatanaAppIndicator3", "0.1")
+    from gi.repository import AyatanaAppIndicator3 as Ayatana
+    HAVE_TRAY = True
+except (ValueError, ImportError):
+    HAVE_TRAY = False
+
 UNIT = "deepcool-digital.service"
+SMART_UNIT = "deepcool-digital-smart.service"
 CONF_FILE = os.path.expanduser("~/.config/deepcool-digital.conf")
+ICON = "deepcool-digital"
 
 MODES = [
     ("cpu_temp", "Temperature"),
@@ -25,7 +35,6 @@ MODES = [
     ("auto", "Auto (alternate both)"),
     ("smart", "Smart (usage when busy)"),
 ]
-SMART_UNIT = "deepcool-digital-smart.service"
 INTERVALS = [250, 500, 1000, 2000]
 
 
@@ -77,42 +86,55 @@ class App(Gtk.Application):
         super().__init__(application_id="org.deepcool.digital.gui")
         self.state = read_conf()
         self.locked = False
+        self.window = None
+        self.tray_menu_items = {}
+
+    # ---------------- application lifecycle ----------------
 
     def do_activate(self):
+        if self.window is None:
+            self.build_window()
+            self.build_tray()
+        self.window.show_all()
+        Gtk.Application.do_activate(self)
+
+    def build_window(self):
         win = Gtk.ApplicationWindow(application=self, title="DeepCool Digital")
-        win.set_default_size(360, 460)
+        win.set_default_size(360, 480)
+        win.set_icon_name(ICON)
+        # close button hides to tray instead of quitting
+        win.connect("delete-event", self.on_window_close)
+        self.window = win
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         box.set_margin_top(16); box.set_margin_bottom(16)
         box.set_margin_start(16); box.set_margin_end(16)
-        win.set_child(box)
+        win.add(box)
 
         # --- warning banner if the system service is also running ---
         self.banner = Gtk.Label()
-        self.banner.set_visible(False)
-        self.banner.set_wrap(True)
-        box.append(self.banner)
+        self.banner.set_no_show_all(True)
+        self.banner.set_line_wrap(True)
+        box.add(self.banner)
         self.takeover_btn = Gtk.Button(label="Take over (disable system service)")
-        self.takeover_btn.set_visible(False)
+        self.takeover_btn.set_no_show_all(True)
         self.takeover_btn.connect("clicked", self.on_takeover)
-        box.append(self.takeover_btn)
+        box.add(self.takeover_btn)
 
         # --- display mode ---
         mode_frame = Gtk.Frame(label=" Display mode ")
         mode_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         mode_box.set_margin_top(8); mode_box.set_margin_bottom(8)
         mode_box.set_margin_start(12); mode_box.set_margin_end(12)
-        mode_frame.set_child(mode_box)
-        box.append(mode_frame)
+        mode_frame.add(mode_box)
+        box.add(mode_frame)
 
         self.mode_btns = {}
         group = None
         for value, label in MODES:
-            btn = Gtk.CheckButton(label=label)
-            if group is not None:
-                btn.set_group(group)
-            btn.connect("toggled", self.on_change, "mode", value)
-            mode_box.append(btn)
+            btn = Gtk.RadioButton(label=label, group=group)
+            btn.connect("toggled", self.on_mode_toggled, value)
+            mode_box.add(btn)
             self.mode_btns[value] = btn
             group = group or btn
 
@@ -121,108 +143,166 @@ class App(Gtk.Application):
         opt_grid = Gtk.Grid(column_spacing=12, row_spacing=10)
         opt_grid.set_margin_top(8); opt_grid.set_margin_bottom(8)
         opt_grid.set_margin_start(12); opt_grid.set_margin_end(12)
-        opt_frame.set_child(opt_grid)
-        box.append(opt_frame)
+        opt_frame.add(opt_grid)
+        box.add(opt_frame)
 
         self.f_btn = Gtk.CheckButton(label="Fahrenheit (°F)")
-        self.f_btn.connect("toggled", self.on_change, "f")
+        self.f_btn.connect("toggled", self.on_option, "f")
         opt_grid.attach(self.f_btn, 0, 0, 1, 1)
 
         self.a_btn = Gtk.CheckButton(label="Temperature alarm")
-        self.a_btn.connect("toggled", self.on_change, "a")
+        self.a_btn.connect("toggled", self.on_option, "a")
         opt_grid.attach(self.a_btn, 0, 1, 1, 1)
 
         lbl = Gtk.Label(label="Update interval")
         lbl.set_halign(Gtk.Align.START)
         opt_grid.attach(lbl, 0, 2, 1, 1)
-        self.u_dd = Gtk.DropDown.new_from_strings(["%d ms" % i for i in INTERVALS])
-        self.u_dd.connect("notify::selected", self.on_interval)
+        self.u_dd = Gtk.ComboBoxText()
+        for i in INTERVALS:
+            self.u_dd.append_text("%d ms" % i)
+        self.u_dd.connect("changed", self.on_interval)
         opt_grid.attach(self.u_dd, 1, 2, 1, 1)
 
-        # --- status ---
+        # --- status + note ---
         self.status = Gtk.Label()
-        self.status.set_wrap(True)
-        box.append(self.status)
+        self.status.set_line_wrap(True)
+        box.add(self.status)
 
-        note = Gtk.Label(label="Changes apply instantly. The display keeps running after this window is closed.")
-        note.set_wrap(True)
+        note = Gtk.Label(label="Changes apply instantly. Closing this window keeps "
+                               "the display running; use the tray icon to reopen.")
+        note.set_line_wrap(True)
         note.set_halign(Gtk.Align.START)
-        note.set_css_classes(["dim-label"])
-        box.append(note)
+        note.get_style_context().add_class("dim-label")
+        box.add(note)
 
         self.sync_widgets()
         self.refresh_banner()
-        self.update_status()
-        win.present()
 
-    # ---------- helpers ----------
+    # ---------------- tray ----------------
+
+    def build_tray(self):
+        self.tray_menu_items = {}
+        if not HAVE_TRAY:
+            return
+        menu = Gtk.Menu()
+        item = Gtk.MenuItem(label="Open DeepCool Digital")
+        item.connect("activate", lambda *_: self.toggle_window())
+        menu.append(item)
+        menu.append(Gtk.SeparatorMenuItem())
+
+        group = None
+        for value, label in MODES:
+            mitem = Gtk.RadioMenuItem(label=label)
+            if group is not None:
+                mitem.set_group([group])
+            mitem.connect("toggled", self.on_mode_toggled, value)
+            menu.append(mitem)
+            self.tray_menu_items[value] = mitem
+            group = group or mitem
+
+        menu.append(Gtk.SeparatorMenuItem())
+        quit_item = Gtk.MenuItem(label="Quit")
+        quit_item.connect("activate", lambda *_: self.quit())
+        menu.append(quit_item)
+        menu.show_all()
+
+        self.indicator = Ayatana.Indicator.new(
+            "deepcool-digital", ICON, Ayatana.IndicatorCategory.APPLICATION_STATUS)
+        self.indicator.set_status(Ayatana.IndicatorStatus.ACTIVE)
+        self.indicator.set_title("DeepCool Digital")
+        self.indicator.set_menu(menu)
+        self.indicator.connect("activate", lambda *_: self.toggle_window())
+        self.sync_widgets()
+
+    def toggle_window(self):
+        if self.window.get_visible():
+            self.window.hide()
+        else:
+            self.window.show_all()
+            self.present()
+
+    # ---------------- helpers ----------------
 
     def sync_widgets(self):
         self.locked = True
-        self.smart_on = smart_active()
+        smart_on = smart_active()
         for value, btn in self.mode_btns.items():
             if value == "smart":
-                btn.set_active(self.smart_on)
+                btn.set_active(smart_on)
             else:
-                btn.set_active(self.state["mode"] == value and not self.smart_on)
+                btn.set_active(self.state["mode"] == value and not smart_on)
+        for value, mitem in self.tray_menu_items.items():
+            if value == "smart":
+                mitem.set_active(smart_on)
+            else:
+                mitem.set_active(self.state["mode"] == value and not smart_on)
         self.f_btn.set_active(self.state["f"])
         self.a_btn.set_active(self.state["a"])
-        self.u_dd.set_selected(INTERVALS.index(self.state["u"]) if self.state["u"] in INTERVALS else 2)
+        self.u_dd.set_active(INTERVALS.index(self.state["u"]) if self.state["u"] in INTERVALS else 2)
         self.locked = False
+        self.update_status()
+
+    def choose_mode(self, value):
+        """Single entry point for mode selection (window radios + tray menu)."""
+        if value == "smart":
+            run(["systemctl", "--user", "enable", "--now", SMART_UNIT])
+        else:
+            run(["systemctl", "--user", "disable", "--now", SMART_UNIT])
+            self.state["mode"] = value
+            self.apply()
+        self.sync_widgets()
 
     def apply(self):
         write_conf(self.state)
         run(["systemctl", "--user", "enable", UNIT])
         run(["systemctl", "--user", "restart", UNIT])
-        self.update_status()
 
     def update_status(self):
         r = run(["systemctl", "--user", "is-active", UNIT])
         mode = dict(MODES)[self.state["mode"]]
         unit = "°F" if self.state["f"] else "°C"
-        prefix = "<b>● Running</b>" if r.stdout.strip() == "active" else "<b>○ Not running</b>"
-        smart = " — <b>Smart:</b> switching by CPU load" if smart_active() else ""
-        self.status.set_markup("%s — %s (%s), %d ms%s" % (prefix, mode, unit, self.state["u"], smart))
+        prefix = "● Running" if r.stdout.strip() == "active" else "○ Not running"
+        smart = " — Smart: switching by CPU load" if smart_active() else ""
+        self.status.set_markup("<b>%s</b> — %s (%s), %d ms%s" % (prefix, mode, unit, self.state["u"], smart))
 
     def refresh_banner(self):
         conflict = system_service_active()
         self.banner.set_visible(conflict)
         self.takeover_btn.set_visible(conflict)
         if conflict:
-            self.banner.set_markup(
-                "<b>System service is running too.</b>\n"
-                "Both services write to the display; let your session manage it.")
+            self.banner.set_markup("<b>System service is running too.</b>\n"
+                                   "Both services write to the display; let your session manage it.")
 
-    # ---------- callbacks ----------
+    # ---------------- callbacks ----------------
 
-    def on_change(self, btn, key, value=None):
+    def on_window_close(self, *_):
+        if HAVE_TRAY:
+            self.window.hide()
+            return True  # block destroy; app keeps running in tray
+        return False
+
+    def on_mode_toggled(self, btn, value):
+        if not self.locked and btn.get_active():
+            self.choose_mode(value)
+
+    def on_option(self, btn, key):
         if self.locked:
             return
-        if key == "mode":
-            if not btn.get_active():
-                return
-            if value == "smart":
-                # watcher takes over mode switching; leave conf untouched
-                run(["systemctl", "--user", "enable", "--now", SMART_UNIT])
-                self.update_status()
-                return
-            run(["systemctl", "--user", "disable", "--now", SMART_UNIT])
-            self.state["mode"] = value
-        else:
-            self.state[key] = btn.get_active()
+        self.state[key] = btn.get_active()
         self.apply()
+        self.update_status()
 
-    def on_interval(self, dd, _pspec):
+    def on_interval(self, _dd):
         if self.locked:
             return
-        self.state["u"] = INTERVALS[dd.get_selected()]
+        self.state["u"] = INTERVALS[self.u_dd.get_active()]
         self.apply()
+        self.update_status()
 
     def on_takeover(self, _btn):
         self.takeover_btn.set_sensitive(False)
-        r = subprocess.run(
-            ["pkexec", "systemctl", "disable", "--now", UNIT],
-            capture_output=True, text=True)
+        r = subprocess.run(["pkexec", "systemctl", "disable", "--now", UNIT],
+                           capture_output=True, text=True)
         if r.returncode == 0:
             self.apply()
         else:
@@ -232,4 +312,5 @@ class App(Gtk.Application):
 
 
 if __name__ == "__main__":
-    App().run(sys.argv)
+    app = App()
+    app.run(sys.argv)
