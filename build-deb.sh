@@ -4,6 +4,7 @@
 set -euo pipefail
 
 VER="${VER:-0.11.0}"
+REL="${REL:-2}"
 SHA256="9365c604831738a5a30128084b7821e01cea16c96ca2f5cbed51b9c0336dabce"
 URL="https://github.com/Nortank12/deepcool-digital-linux/releases/download/v${VER}/deepcool-digital-linux"
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -26,8 +27,10 @@ fi
 rm -rf "$PKG"
 install -D -m 0755 "$BIN"                        "$PKG/usr/bin/deepcool-digital-linux"
 install -D -m 0755 "$HERE/assets/bin/deepcool-digital-gui" "$PKG/usr/bin/deepcool-digital-gui"
+install -D -m 0755 "$HERE/assets/bin/deepcool-digital-smart" "$PKG/usr/bin/deepcool-digital-smart"
 install -D -m 0644 "$HERE/assets/deepcool-digital.service" "$PKG/lib/systemd/system/deepcool-digital.service"
 install -D -m 0644 "$HERE/assets/deepcool-digital-user.service" "$PKG/lib/systemd/user/deepcool-digital.service"
+install -D -m 0644 "$HERE/assets/deepcool-digital-smart.service" "$PKG/lib/systemd/user/deepcool-digital-smart.service"
 install -D -m 0644 "$HERE/assets/deepcool-digital-gui.desktop" "$PKG/usr/share/applications/deepcool-digital-gui.desktop"
 install -D -m 0644 "$HERE/assets/99-deepcool-digital.rules" "$PKG/lib/udev/rules.d/99-deepcool-digital.rules"
 
@@ -35,7 +38,7 @@ install -D -m 0644 "$HERE/assets/99-deepcool-digital.rules" "$PKG/lib/udev/rules
 install -d -m 0755 "$PKG/DEBIAN"
 cat > "$PKG/DEBIAN/control" <<EOF
 Package: deepcool-digital-linux
-Version: ${VER}
+Version: ${VER}-${REL}
 Section: admin
 Priority: optional
 Architecture: amd64
@@ -72,6 +75,6 @@ EOF
 chmod 0755 "$PKG/DEBIAN/postinst" "$PKG/DEBIAN/prerm"
 
 # 4. Build
-OUT="$DIST/deepcool-digital-linux_${VER}_amd64.deb"
+OUT="$DIST/deepcool-digital-linux_${VER}-${REL}_amd64.deb"
 dpkg-deb --build --root-owner-group "$PKG" "$OUT"
 echo ">> built $OUT"

@@ -1,0 +1,14 @@
+[Unit]
+Description=DeepCool Digital smart mode (load-aware display switching)
+# Enabled/disabled from deepcool-digital-gui ("Smart" option)
+
+[Service]
+ExecStart=/usr/bin/deepcool-digital-smart
+Environment=BUSY_PCT=50
+Environment=IDLE_PCT=25
+Environment=POLL_SEC=2
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=default.target

@@ -23,7 +23,9 @@ MODES = [
     ("cpu_temp", "Temperature"),
     ("cpu_usage", "CPU usage"),
     ("auto", "Auto (alternate both)"),
+    ("smart", "Smart (usage when busy)"),
 ]
+SMART_UNIT = "deepcool-digital-smart.service"
 INTERVALS = [250, 500, 1000, 2000]
 
 
@@ -32,7 +34,10 @@ def read_conf():
     if os.path.exists(CONF_FILE):
         for line in open(CONF_FILE):
             if line.startswith("DEEPCOOL_ARGS="):
-                args = shlex.split(line.split("=", 1)[1])
+                raw = line.split("=", 1)[1].strip()
+                if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in "\"'":
+                    raw = raw[1:-1]
+                args = raw.split()
                 if "-m" in args and args.index("-m") + 1 < len(args):
                     state["mode"] = args[args.index("-m") + 1]
                 state["f"] = "-f" in args
@@ -61,6 +66,10 @@ def run(cmd):
 
 def system_service_active():
     return run(["systemctl", "is-active", "--quiet", UNIT]).returncode == 0
+
+
+def smart_active():
+    return run(["systemctl", "--user", "is-active", "--quiet", SMART_UNIT]).returncode == 0
 
 
 class App(Gtk.Application):
@@ -150,8 +159,12 @@ class App(Gtk.Application):
 
     def sync_widgets(self):
         self.locked = True
+        self.smart_on = smart_active()
         for value, btn in self.mode_btns.items():
-            btn.set_active(self.state["mode"] == value)
+            if value == "smart":
+                btn.set_active(self.smart_on)
+            else:
+                btn.set_active(self.state["mode"] == value and not self.smart_on)
         self.f_btn.set_active(self.state["f"])
         self.a_btn.set_active(self.state["a"])
         self.u_dd.set_selected(INTERVALS.index(self.state["u"]) if self.state["u"] in INTERVALS else 2)
@@ -167,10 +180,9 @@ class App(Gtk.Application):
         r = run(["systemctl", "--user", "is-active", UNIT])
         mode = dict(MODES)[self.state["mode"]]
         unit = "°F" if self.state["f"] else "°C"
-        if r.stdout.strip() == "active":
-            self.status.set_markup("<b>● Running</b> — %s (%s), %d ms" % (mode, unit, self.state["u"]))
-        else:
-            self.status.set_markup("<b>○ Not running</b> — %s (%s), %d ms" % (mode, unit, self.state["u"]))
+        prefix = "<b>● Running</b>" if r.stdout.strip() == "active" else "<b>○ Not running</b>"
+        smart = " — <b>Smart:</b> switching by CPU load" if smart_active() else ""
+        self.status.set_markup("%s — %s (%s), %d ms%s" % (prefix, mode, unit, self.state["u"], smart))
 
     def refresh_banner(self):
         conflict = system_service_active()
@@ -187,8 +199,15 @@ class App(Gtk.Application):
         if self.locked:
             return
         if key == "mode":
-            if btn.get_active():
-                self.state["mode"] = value
+            if not btn.get_active():
+                return
+            if value == "smart":
+                # watcher takes over mode switching; leave conf untouched
+                run(["systemctl", "--user", "enable", "--now", SMART_UNIT])
+                self.update_status()
+                return
+            run(["systemctl", "--user", "disable", "--now", SMART_UNIT])
+            self.state["mode"] = value
         else:
             self.state[key] = btn.get_active()
         self.apply()

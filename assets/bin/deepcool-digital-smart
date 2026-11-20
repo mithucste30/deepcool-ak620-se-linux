@@ -1,0 +1,101 @@
+#!/usr/bin/env python3
+"""DeepCool Digital — smart mode watcher.
+
+Flips the AK620 DIGITAL (SE) display between CPU usage and temperature
+based on system load, with hysteresis to avoid flapping:
+
+    load >= BUSY_PCT  -> cpu_usage
+    load <= IDLE_PCT  -> cpu_temp
+    in between        -> keep current mode
+
+Runs as a user service; applies changes by rewriting
+~/.config/deepcool-digital.conf (preserving -f/-a/-u flags) and
+restarting the deepcool-digital user service.
+
+Configuration via environment (see deepcool-digital-smart.service):
+    BUSY_PCT (default 50), IDLE_PCT (default 25), POLL_SEC (default 2)
+"""
+import os
+import shlex
+import subprocess
+import sys
+import time
+
+CONF = os.path.expanduser("~/.config/deepcool-digital.conf")
+UNIT = "deepcool-digital.service"
+BUSY = float(os.environ.get("BUSY_PCT", "50"))
+IDLE = float(os.environ.get("IDLE_PCT", "25"))
+POLL = float(os.environ.get("POLL_SEC", "2"))
+
+
+def cpu_times():
+    """Return (idle_ticks, total_ticks) from /proc/stat."""
+    with open("/proc/stat") as f:
+        vals = [int(x) for x in f.readline().split()[1:]]
+    idle = vals[3] + (vals[4] if len(vals) > 4 else 0)
+    return idle, sum(vals)
+
+
+def read_args():
+    args = ["-m", "cpu_temp"]
+    try:
+        for line in open(CONF):
+            if line.startswith("DEEPCOOL_ARGS="):
+                raw = line.split("=", 1)[1].strip()
+                if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in "\"'":
+                    raw = raw[1:-1]
+                args = raw.split()
+                break
+    except FileNotFoundError:
+        pass
+    return args
+
+
+def current_mode():
+    args = read_args()
+    return args[args.index("-m") + 1] if "-m" in args else "cpu_temp"
+
+
+def set_mode(mode):
+    """Rewrite the conf with a new -m value, preserving other flags."""
+    args = read_args()
+    if "-m" in args:
+        args[args.index("-m") + 1] = mode
+    else:
+        args = ["-m", mode] + args
+    os.makedirs(os.path.dirname(CONF), exist_ok=True)
+    with open(CONF, "w") as f:
+        f.write("DEEPCOOL_ARGS=%s\n" % shlex.quote(" ".join(args)))
+    subprocess.run(["systemctl", "--user", "restart", UNIT],
+                   capture_output=True, text=True)
+
+
+def main():
+    print("smart mode: load >= %g%% -> cpu_usage, load <= %g%% -> cpu_temp, poll %gs"
+          % (BUSY, IDLE, POLL), flush=True)
+    prev = cpu_times()
+    desired = current_mode()
+    while True:
+        time.sleep(POLL)
+        cur = cpu_times()
+        d_idle, d_total = cur[0] - prev[0], cur[1] - prev[1]
+        prev = cur
+        if d_total <= 0:
+            continue
+        load = 100.0 * (1.0 - d_idle / d_total)
+        new = None
+        if load >= BUSY and desired != "cpu_usage":
+            new = "cpu_usage"
+        elif load <= IDLE and desired != "cpu_temp":
+            new = "cpu_temp"
+        if new:
+            desired = new
+            print("cpu load %.0f%% -> %s" % (load, new), flush=True)
+            set_mode(new)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        sys.exit(0)

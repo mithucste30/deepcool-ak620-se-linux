@@ -5,7 +5,7 @@
 set -euo pipefail
 
 VER="${VER:-0.11.0}"
-REL="${REL:-1}"
+REL="${REL:-2}"
 SHA256="9365c604831738a5a30128084b7821e01cea16c96ca2f5cbed51b9c0336dabce"
 URL="https://github.com/Nortank12/deepcool-digital-linux/releases/download/v${VER}/deepcool-digital-linux"
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -34,7 +34,9 @@ install -d "$SRC"
 install -m 0755 "$BIN"                                     "$SRC/deepcool-digital-linux"
 install -m 0644 "$HERE/assets/deepcool-digital.service"    "$SRC/deepcool-digital.service"
 install -m 0755 "$HERE/assets/bin/deepcool-digital-gui"    "$SRC/deepcool-digital-gui"
+install -m 0755 "$HERE/assets/bin/deepcool-digital-smart"  "$SRC/deepcool-digital-smart"
 install -m 0644 "$HERE/assets/deepcool-digital-user.service" "$SRC/deepcool-digital-user.service"
+install -m 0644 "$HERE/assets/deepcool-digital-smart.service" "$SRC/deepcool-digital-smart.service"
 install -m 0644 "$HERE/assets/deepcool-digital-gui.desktop" "$SRC/deepcool-digital-gui.desktop"
 install -m 0644 "$HERE/assets/99-deepcool-digital.rules"   "$SRC/99-deepcool-digital.rules"
 tar -C "$TOPDIR/SOURCES" -czf "$TOPDIR/SOURCES/deepcool-digital-linux-${VER}.tar.gz" "deepcool-digital-linux-${VER}"
@@ -79,8 +81,10 @@ udev rule allows rootless CLI access.
 %install
 install -D -m 0755 deepcool-digital-linux %{buildroot}/%{_bindir}/deepcool-digital-linux
 install -D -m 0755 deepcool-digital-gui %{buildroot}/%{_bindir}/deepcool-digital-gui
+install -D -m 0755 deepcool-digital-smart %{buildroot}/%{_bindir}/deepcool-digital-smart
 install -D -m 0644 deepcool-digital.service %{buildroot}/%{_unitdir}/deepcool-digital.service
 install -D -m 0644 deepcool-digital-user.service %{buildroot}/%{_userunitdir}/deepcool-digital.service
+install -D -m 0644 deepcool-digital-smart.service %{buildroot}/%{_userunitdir}/deepcool-digital-smart.service
 install -D -m 0644 deepcool-digital-gui.desktop %{buildroot}/%{_datadir}/applications/deepcool-digital-gui.desktop
 install -D -m 0644 99-deepcool-digital.rules %{buildroot}/%{_udevrulesdir}/99-deepcool-digital.rules
 
@@ -98,8 +102,10 @@ fi
 %files
 %{_bindir}/deepcool-digital-linux
 %{_bindir}/deepcool-digital-gui
+%{_bindir}/deepcool-digital-smart
 %{_unitdir}/deepcool-digital.service
 %{_userunitdir}/deepcool-digital.service
+%{_userunitdir}/deepcool-digital-smart.service
 %{_datadir}/applications/deepcool-digital-gui.desktop
 %{_udevrulesdir}/99-deepcool-digital.rules
 EOF
