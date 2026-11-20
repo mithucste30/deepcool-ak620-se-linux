@@ -4,7 +4,7 @@
 set -euo pipefail
 
 VER="${VER:-0.11.0}"
-REL="${REL:-4}"
+REL="${REL:-5}"
 # upstream release tag (can differ from the numeric VER, e.g. "-alpha")
 UPSTREAM_TAG="${UPSTREAM_TAG:-v0.11.0-alpha}"
 SHA256="9365c604831738a5a30128084b7821e01cea16c96ca2f5cbed51b9c0336dabce"
@@ -65,7 +65,11 @@ if command -v udevadm >/dev/null 2>&1; then
 fi
 if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload || true
-    systemctl enable --now deepcool-digital.service || true
+    # when a user session already owns the display (deepcool-digital-gui
+    # flow), don't start a competing system-level service
+    if ! ls /home/*/.config/systemd/user/default.target.wants/deepcool-digital.service >/dev/null 2>&1; then
+        systemctl enable --now deepcool-digital.service || true
+    fi
 fi
 EOF
 

@@ -5,7 +5,7 @@
 set -euo pipefail
 
 VER="${VER:-0.11.0}"
-REL="${REL:-4}"
+REL="${REL:-5}"
 # upstream release tag (can differ from the numeric VER, e.g. "-alpha")
 UPSTREAM_TAG="${UPSTREAM_TAG:-v0.11.0-alpha}"
 SHA256="9365c604831738a5a30128084b7821e01cea16c96ca2f5cbed51b9c0336dabce"
@@ -99,7 +99,10 @@ install -D -m 0644 99-deepcool-digital.rules %{buildroot}/%{_udevrulesdir}/99-de
 
 %post
 systemctl daemon-reload >/dev/null 2>&1 || :
-systemctl enable --now deepcool-digital.service >/dev/null 2>&1 || :
+# when a user session already owns the display, don't start a competing service
+if ! ls /home/*/.config/systemd/user/default.target.wants/deepcool-digital.service >/dev/null 2>&1; then
+    systemctl enable --now deepcool-digital.service >/dev/null 2>&1 || :
+fi
 udevadm control --reload-rules || :
 udevadm trigger --subsystem-match=hidraw || :
 
